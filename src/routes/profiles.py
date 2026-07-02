@@ -10,12 +10,13 @@ from security.interfaces import JWTAuthManagerInterface
 from storages import S3StorageInterface
 from database import get_db, UserModel, UserProfileModel, UserGroupEnum
 from exceptions import TokenExpiredError, InvalidTokenError, S3FileUploadError
+from schemas.profiles import ProfileResponse
 from validation.profile import validate_image
 
 router = APIRouter()
 
 
-@router.post("/users/{user_id}/profile/", status_code=201)
+@router.post("/users/{user_id}/profile/", response_model=ProfileResponse, status_code=201)
 async def create_user_profile(
     user_id: int,
     first_name: str = Form(...),
@@ -27,13 +28,13 @@ async def create_user_profile(
     token: str = Depends(get_token),
     jwt_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager),
     s3_client: S3StorageInterface = Depends(get_s3_storage_client),
-    db = Depends(get_db),
+    db=Depends(get_db),
 ):
     # Verify token
     try:
         payload = jwt_manager.decode_access_token(token)
-    except TokenExpiredError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+    except TokenExpiredError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired.")
     except InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.")
 
@@ -50,8 +51,14 @@ async def create_user_profile(
 
     # If creating for another user, ensure admin
     # group relationship is already loaded via selectinload to avoid lazy-loading IO
-    if request_user.id != user_id and request_user.group.name != UserGroupEnum.ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to edit this profile.")
+    if (
+        request_user.id != user_id
+        and request_user.group.name != UserGroupEnum.ADMIN
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to edit this profile.",
+        )
 
     # Ensure target user exists and is active
     stmt_target = select(UserModel).where(UserModel.id == user_id)
@@ -114,6 +121,8 @@ async def create_user_profile(
     avatar_url = await s3_client.get_file_url(avatar_key)
 
     return {
+        "id": profile.id,
+        "user_id": profile.user_id,
         "first_name": profile.first_name,
         "last_name": profile.last_name,
         "gender": profile.gender,

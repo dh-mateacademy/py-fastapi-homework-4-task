@@ -12,6 +12,8 @@ from validation import (
 
 
 class ProfileResponse(BaseModel):
+    id: int
+    user_id: int
     first_name: str
     last_name: str
     gender: str
@@ -52,4 +54,10 @@ class ProfileCreate(BaseModel):
     def validate_info(cls, v: str) -> str:
         if v is None or not v.strip():
             raise ValueError("Info field cannot be empty or contain only spaces.")
+        return v
+
+    @field_validator("avatar")
+    def validate_avatar(cls, v: UploadFile | None) -> UploadFile | None:
+        if v is not None:
+            validate_image(v)
         return v
